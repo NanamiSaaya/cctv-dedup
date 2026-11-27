@@ -18,9 +18,21 @@
   - 过滤已知失效的源
 输出供 my-t-v0 / 任意 m3u 播放器直接加载。
 """
+import os
 import re
+import ssl
 import urllib.request
 from collections import defaultdict
+
+# 抓上游要走代理（GitHub 直连被 reset），但这里只是抓文本，不影响测源精度。
+# 代理从环境变量 GIT_PROXY 或默认 mihomo 取；没有则直连。
+_PROXY = os.environ.get("GIT_PROXY") or os.environ.get("https_proxy") or ""
+_opener = None
+if _PROXY:
+    _opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": _PROXY, "https": _PROXY}))
+else:
+    _opener = urllib.request.build_opener()
 
 UPSTREAMS = [
     "https://raw.githubusercontent.com/best-fan/iptv-sources/main/cn_cctv_status.m3u8",
@@ -41,7 +53,7 @@ def fetch():
     for url in UPSTREAMS:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with _opener.open(req, timeout=30) as r:
                 text = r.read().decode("utf-8", "ignore")
             if "#EXTINF" in text:
                 return text

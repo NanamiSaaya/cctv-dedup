@@ -64,3 +64,21 @@ wrote candidates.m3u: 18 channels, 124 urls
   耗时 16s，达标 2/18，wrote picked.m3u
 
 === 2. 写入仓库并推送 ===
+  cctv.m3u: 18 频道
+  push OK
+
+=== 4. 校验线上 ===
+  ghproxy 拉到 18 频道
+
+完成。电视端 URL：
+  https://ghproxy.net/https://raw.githubusercontent.com/NanamiSaaya/cctv-dedup/master/cctv.m3u
+===== 2026-11-27 23:57:40 end rc=0 =====
+===== 2026-11-27 23:58:56 start =====
+--- 刷新候选池 ---
+wrote candidates.m3u: 18 channels, 124 urls
+=== 0. 仓库当前已有 18 频道（将覆盖）===
+=== 1. 选源（画质优先 + 余量判据）===
+  ★ CCTV17   标   ? 实1080p ok=2  stall=0  err=0    40.7M worst=  1.1s [1/18 4s]
+  耗时 16s，达标 1/18，wrote picked.m3u
+
+=== 2. 写入仓库并推送 ===

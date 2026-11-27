@@ -80,6 +80,27 @@ _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
 
+# 强制 IPv4：Debian 那台机器 DNS 优先返回 IPv6，而 IPv6 出口不通，
+# 会导致所有 HTTPS 源测出 000。测源必须直连且走 v4。
+try:
+    import socket as _socket
+    _orig_getaddrinfo = _socket.getaddrinfo
+
+    def _v4_only(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, _socket.AF_INET, type, proto, flags)
+
+    if os.environ.get("FORCE_V4", "1") == "1":
+        _socket.getaddrinfo = _v4_only
+except Exception:
+    pass
+
+# 测源绝不能走代理：代理会绕一圈，"分片停顿"就测不准了
+for _k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
+           "all_proxy", "ALL_PROXY"):
+    os.environ.pop(_k, None)
+os.environ["no_proxy"] = "*"
+os.environ["NO_PROXY"] = "*"
+
 WANT = [c.strip() for c in (sys.argv[1] if len(sys.argv) > 1 else "").split(",") if c.strip()]
 WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 48
 
@@ -92,7 +113,7 @@ TIERS = {
     0:    (4.0, 0.65),   # 未知档位，按 720p 要求
 }
 
-MIN_BYTES_IN_2S = 400 * 1024     # 2 秒至少 400KB ≈ 1.6 Mbps，低于此直接判死
+MIN_BYTES_IN_2S = 200 * 1024     # 快速失败阈值（放宽，真正淘汰交给分片超时判据）
 MAXSEC = 10                       # 单源最长观测
 MIN_SEGS = 2
 
@@ -199,14 +220,18 @@ def probe(url, tier):
     base = url.rsplit("/", 1)[0]
     segdur = tgt or 6.0
 
-    # --- 快速失败：2 秒能下多少 ---
-    last = segs[-1][1]
-    su = last if last.startswith("http") else f"{base}/{last}"
-    got, dt, failed = read_for(su, 2.0, timeout=6)
+    # --- 快速失败：用「倒数第 2 个」分片测速 ---
+    # 不能用最后一个：那是最新分片，服务器常常还没写完，
+    # 实测会把 7 Mbps 的好源误判成 dead（这个 bug 让达标率从 14/18 掉到 2/18）。
+    probe_seg = segs[-2][1] if len(segs) >= 2 else segs[-1][1]
+    su = probe_seg if probe_seg.startswith("http") else f"{base}/{probe_seg}"
+    got, dt, failed = read_for(su, 2.0, timeout=8)
     quick_mbps = got * 8 / 1e6 / dt if dt else 0
     if failed and got == 0:
         return dead
-    if got < MIN_BYTES_IN_2S or quick_mbps < dead_mbps:
+    # 阈值放宽到 200KB/2s：只要不是烂到没法看，就给它进入逐分片验证的机会，
+    # 真正的淘汰交给后面的「分片是否超时」判据。
+    if got < 200 * 1024:
         return {"ok": 0, "stall": 0, "err": 1, "mbps": quick_mbps,
                 "worst": dt, "n": 1, "seglen": segdur, "dead": True,
                 "margin_ok": False, "res": None, "res_px": 0}
@@ -226,7 +251,10 @@ def probe(url, tier):
         segs, t2 = parse(body.decode("utf-8", "ignore"))
         if t2:
             segdur = t2
-        for dur, seg in segs[-2:]:
+        # 只取倒数第 2、3 个：最后一个常是「刚生成但服务器还没写完」的分片，
+        # 拉它会长时间挂住。真实播放器也会自动落后一两个分片，所以这样更贴近实际。
+        cands = segs[-3:-1] if len(segs) >= 3 else segs[:-1] if len(segs) > 1 else segs
+        for dur, seg in cands:
             s = seg if seg.startswith("http") else f"{base}/{seg}"
             if s in seen:
                 continue

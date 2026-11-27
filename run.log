@@ -1,0 +1,14 @@
+===== 2026-11-27 23:37:32 start =====
+=== 0. 仓库当前已有 18 频道（将覆盖）===
+=== 1. 选源（画质优先 + 余量判据）===
+  ★ CCTV5    标   ? 实    ? ok=2  stall=0  err=0    28.6M worst=  1.5s [1/18 5s]
+  ★ CCTV13   标   ? 实    ? ok=2  stall=0  err=0    15.0M worst=  1.8s [2/18 6s]
+  ★ CCTV15   标   ? 实    ? ok=2  stall=0  err=0     9.1M worst=  2.1s [3/18 6s]
+  ★ CCTV14   标   ? 实    ? ok=2  stall=0  err=0    13.8M worst=  1.7s [4/18 6s]
+  ★ CCTV4    标   ? 实    ? ok=2  stall=0  err=0    17.7M worst=  2.9s [5/18 7s]
+  ★ CCTV17   标   ? 实    ? ok=2  stall=0  err=0    17.6M worst=  2.7s [6/18 7s]
+  ★ CCTV9    标   ? 实    ? ok=2  stall=0  err=0    17.4M worst=  2.9s [7/18 8s]
+  ★ CCTV2    标   ? 实    ? ok=2  stall=0  err=0    23.7M worst=  5.0s [8/18 10s]
+  耗时 20s，达标 8/18，wrote picked.m3u
+
+=== 2. 写入仓库并推送 ===

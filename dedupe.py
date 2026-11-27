@@ -44,7 +44,11 @@ ORDER = ["CCTV1", "CCTV2", "CCTV3", "CCTV4", "CCTV5", "CCTV5+", "CCTV6", "CCTV7"
          "CCTV15", "CCTV16", "CCTV17"]
 DEAD = [r"74\.91\.26\.218", r"173\.208\.", r"gslbserv\.itv\.cmvideo\.cn",
         r"38\.75\.136\.137", r"104\.152\.209\.49", r"69\.30\.245\.50",
-        r"204\.12\.221\.218"]
+        r"204\.12\.221\.218",
+        # 2026-11-27 实测：播放列表 34ms 秒回，分片却限速到 0.5~1.3 Mbps。
+        # 上游总塞 15 条（response-time 好看），把优质节点挤出候选池，
+        # 导致 18 频道只有 2~3 个达标。拉黑。
+        r"123\.160\.235\.204"]
 MAX_URLS = 8
 
 
@@ -90,22 +94,56 @@ def parse(text):
     return groups
 
 
+def load_seed(path="fastseed.txt"):
+    """读取已验证节点种子表：每行 `CCTV1<TAB或空格>URL`。
+
+    这些是人工核对过台标、实测过带宽和分片稳定性的节点，
+    优先级高于上游任意排序。
+    """
+    seed = defaultdict(list)
+    try:
+        for raw in open(path, encoding="utf-8"):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                continue
+            ch, url = parts[0].strip(), parts[1].strip()
+            if url.startswith("http"):
+                seed[ch].append(url)
+    except FileNotFoundError:
+        pass
+    return seed
+
+
 def dedupe(text):
     g = parse(text)
+    seed = load_seed()
     out = ["#EXTM3U"]
     for ch in ORDER:
         cand = g.get(ch, [])
         if not cand:
             continue
-        # 只做 IP 去重，保持上游给的相对顺序；质量排序留给本地 speedrank.py
-        seen_ip, urls = set(), []
+        # ⚠️ 关键：把 fastseed.txt 里**人工核对过台标 + 实测稳定**的节点
+        # 优先放进候选池。否则上游按 time 排序会把这些好节点挤掉 ——
+        # 实测上游一次给 123.160.235.204（限速 1 Mbps）放了 15 条，
+        # 把 60.223.94.153 / 112.123.243.37 这些优质节点全挤出去了，
+        # 结果 18 个频道只有 2~3 个达标。
+        urls, seen_ip = [], set()
+        for u in seed.get(ch, []):
+            ip = (re.match(r"https?://([^/:]+)", u) or [None, ""])[1]
+            if ip and ip not in seen_ip:
+                seen_ip.add(ip)
+                urls.append(u)
+        # 再用上游候选补足
         for c in cand:
             ip = (re.match(r"https?://([^/:]+)", c["url"]) or [None, ""])[1]
             if ip in seen_ip:
                 continue
             seen_ip.add(ip)
             urls.append(c["url"])
-            if len(urls) >= MAX_URLS:
+            if len(urls) >= MAX_URLS + 4:
                 break
         disp = "CCTV-5+" if ch == "CCTV5+" else ch.replace("CCTV", "CCTV-", 1)
         out.append(f'#EXTINF:-1 tvg-name="{ch}" tvg-logo="{cand[0]["logo"]}" group-title="央视",{disp}')

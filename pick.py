@@ -95,22 +95,29 @@ os.environ["no_proxy"] = "*"
 os.environ["NO_PROXY"] = "*"
 
 WANT = [c.strip() for c in (sys.argv[1] if len(sys.argv) > 1 else "").split(",") if c.strip()]
-WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 8
+WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 4
 
-# ⚠️ 并发上限（实测结论，别随意调高）
+# ⚠️ 并发上限 = 4（实测硬结论，别调高）
 #
-# 用同一个源做加压测试：
-#   并发  1 → 20.3 Mbps
-#   并发  4 → 18.7~20.8 Mbps   （几乎无损）
-#   并发  8 → 5.6~7.1 Mbps     （掉 3 倍）
-#   并发 16 → 2.2~4.1 Mbps     （掉 6 倍）
+# 用同一批源做加压测试，结果如下：
 #
-# IPTV 源站按连接数分摊带宽，并发一高每个连接测到的都是假数据 ——
-# 会把 20 Mbps 的好源测成 3 Mbps 然后误杀。
+#   单线程串行：
+#     http://183.223.157.33/.../0005  → ok=2 mb=29.7 margin=True  ✅
+#   并发 8 同时打这同一个 URL：
+#     8 条全部 err=1 mb=0.0                                      ❌
 #
-# 所以并发必须压在 4~8。候选源多时靠「多轮扫描」补速度，
-# 不要靠拉高并发。
-WORKERS_CAP = 8
+#   http://119.39.9.8（同源加压）：
+#     并发 1 → 20.3 Mbps ; 并发 4 → 18.7~20.8 ; 并发 8 → 5.6~7.1 ; 并发 16 → 2.2~4.1
+#
+# 结论：IPTV 源站对**同一 IP 的并发连接数**有限制，
+# 超过阈值直接拒绝或均分带宽。并发测速测出的是假数据，
+# 会把 29.7 Mbps 的好源判成 dead。
+#
+# 所以：
+#   1. 并发压到 4 以内
+#   2. 只对「同一频道」串行（不同频道可以并行，因为打的是不同源站）
+#   3. 靠多轮扫描补速度，不靠拉高并发
+WORKERS_CAP = 4
 
 # ---- 画质档位 → 要求 ----
 # (像素档, 最低 Mbps, 余量系数: 最慢分片 <= 分片时长 * 余量)
@@ -380,14 +387,14 @@ def main():
 
     def work(ch, tier, url):
         if stop.is_set():
-            return
+            return None
         with lock:
             if ch in solved and solved[ch][2]["res_px"] >= 1080:
-                return          # 已经拿到 1080 达标源，不必再测
+                return None     # 已经拿到 1080 达标源，不必再测
         try:
             st = probe(url, tier)
         except Exception:
-            return
+            return None
         with lock:
             if ch in solved:
                 cur = solved[ch][2]
@@ -396,7 +403,7 @@ def main():
                     solved[ch] = (url, tier, st)
                     print(f"↑ {ch:8s} 升级到 {st['res_px']}p  "
                           f"{st['mbps']:6.1f}M  {url}", flush=True)
-                return
+                return st
             if st["margin_ok"]:
                 solved[ch] = (url, tier, st)
                 tag = "★"
@@ -416,6 +423,7 @@ def main():
                   f"[{len(solved)}/{len(targets)} {time.time()-t0:.0f}s]", flush=True)
             if len(solved) >= len(targets):
                 stop.set()
+            return st
 
     order = []
     for i in range(max((len(chans[t]["urls"]) for t in targets), default=0)):
@@ -425,11 +433,48 @@ def main():
                 order.append((t, tier, u))
     order = list(dict.fromkeys(order))
 
-    print(f"{len(targets)} 频道 / {len(order)} 候选，" 
-          f"{min(WORKERS, WORKERS_CAP)} 并发（源站限连接数，再高就测不准），"
-          f"画质优先、慢源 2 秒即弃\n", flush=True)
+    # 按 host 分组：同一 host 的源必须串行（源站限同 IP 并发连接），
+    # 不同 host 之间可以并行 —— 既准确又不慢。
+    from urllib.parse import urlparse
+    by_host = OrderedDict()
+    for item in order:
+        h = urlparse(item[2]).netloc or "unknown"
+        by_host.setdefault(h, []).append(item)
+
+    print(f"{len(targets)} 频道 / {len(order)} 候选 / {len(by_host)} 源站，"
+          f"同源站串行、{min(WORKERS, WORKERS_CAP)} 源站并行\n", flush=True)
+
+    def run_host(host, items):
+        """同一 host 的候选逐条测。
+
+        两条关键保护（实测教训）：
+        1. 某频道已拿到 1080 达标源 → 跳过它的剩余候选
+        2. **host 级熔断**：连续 3 条判死就认为整个源站不可用，跳过剩余候选。
+           否则像 123.160.235.204 这种有 15 条失效 URL 的源站，
+           会白白占掉 15×8=120 秒，把排队在后面的好源站全堵死 ——
+           实测就是这样导致 29.7 Mbps 的好源没来得及被测。
+        """
+        dead_streak = 0
+        for ch, tier, u in items:
+            if stop.is_set():
+                return
+            with lock:
+                hit = solved.get(ch)
+                if hit and hit[2]["res_px"] >= 1080:
+                    continue
+            st = work(ch, tier, u)
+            if st is None:
+                dead_streak += 1
+                if dead_streak >= 3:
+                    with lock:
+                        print(f"  ⚡ {host} 连续 {dead_streak} 条失效，跳过该源站 "
+                              f"剩余 {len(items)}-{items.index((ch,tier,u))+1} 条", flush=True)
+                    return
+            else:
+                dead_streak = 0
+
     with cf.ThreadPoolExecutor(max_workers=min(WORKERS, WORKERS_CAP)) as ex:
-        futs = [ex.submit(work, ch, ti, u) for ch, ti, u in order]
+        futs = [ex.submit(run_host, h, items) for h, items in by_host.items()]
         for f in cf.as_completed(futs):
             if stop.is_set():
                 for x in futs:

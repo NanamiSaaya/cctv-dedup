@@ -201,7 +201,24 @@ def real_res(ts_bytes):
 
 
 def probe(url, tier):
-    """返回质量指标。tier 只作为「预期档位」参考，真实画质靠解码核实。"""
+    """返回质量指标。tier 只作为「预期档位」参考，真实画质靠解码核实。
+
+    ⚠️ 单次测量不可靠：同一个源连测 5 次，最快 23 Mbps、最慢 3.5 Mbps 还带 stall。
+    IPTV 源的分片停顿是概率性的，测一次就下结论会误杀好源、也会放过坏源。
+    → 对「被判失败」的源再补测 1 次，两次取好的那次；只有连续两次都不行才淘汰。
+    """
+    first = _probe_once(url, tier)
+    if first["margin_ok"] or first.get("dead"):
+        return first
+    # 没达标又没判死（说明是 stall 或速度不足）→ 补测一次
+    second = _probe_once(url, tier)
+    # 取更好的一次（按 margin_ok 优先，其次 stall/err 少，再其次 mbps 高）
+    def rank(x):
+        return (0 if x["margin_ok"] else 1, x["err"], x["stall"], -x["mbps"])
+    return first if rank(first) <= rank(second) else second
+
+
+def _probe_once(url, tier):
     dead_mbps, margin = TIERS.get(tier, TIERS[0])
     dead = {"ok": 0, "stall": 0, "err": 1, "mbps": 0.0, "worst": 0.0,
             "n": 1, "seglen": None, "dead": True, "margin_ok": False,

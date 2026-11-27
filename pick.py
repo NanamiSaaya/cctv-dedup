@@ -102,7 +102,7 @@ os.environ["no_proxy"] = "*"
 os.environ["NO_PROXY"] = "*"
 
 WANT = [c.strip() for c in (sys.argv[1] if len(sys.argv) > 1 else "").split(",") if c.strip()]
-WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 48
+WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 24
 
 # ---- 画质档位 → 要求 ----
 # (像素档, 最低 Mbps, 余量系数: 最慢分片 <= 分片时长 * 余量)

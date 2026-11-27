@@ -100,3 +100,14 @@ wrote candidates.m3u: 18 channels, 124 urls
   耗时 48s，达标 1/18，wrote picked.m3u
 
 === 2. 写入仓库并推送 ===
+===== 2026-11-28 00:04:38 start =====
+--- 刷新候选池 ---
+wrote candidates.m3u: 18 channels, 124 urls
+=== 0. 仓库当前已有 18 频道（将覆盖）===
+=== 1. 选源（画质优先 + 余量判据）===
+  ★ CCTV17   标   ? 实1080p ok=2  stall=0  err=0    32.3M worst=  1.4s [1/18 4s]
+  ★ CCTV16   标   ? 实1080p ok=2  stall=0  err=0    36.9M worst=  1.4s [2/18 14s]
+  ★ CCTV5+   标   ? 实 720p ok=3  stall=0  err=0     4.2M worst=  3.0s [3/18 21s]
+  耗时 30s，达标 3/18，wrote picked.m3u
+
+=== 2. 写入仓库并推送 ===

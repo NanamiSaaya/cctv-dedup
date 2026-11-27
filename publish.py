@@ -46,6 +46,32 @@ _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
 
+# GitHub 推送需要走代理（这台 Debian 直连 raw.githubusercontent 会被 reset，
+# 实测 curl 返回 35）。但**测源必须直连** —— 代理会把所有流量绕一圈，
+# 测出来的"分片停顿"毫无参考价值。所以两者分开处理。
+GIT_PROXY = os.environ.get("GIT_PROXY", "http://127.0.0.1:7890")
+
+
+def _git():
+    """git 命令前缀：带代理配置。本机没有代理时自动降级为直连。"""
+    base = ["git", "-c", f"user.name={GH_USER}",
+            "-c", f"user.email={GH_USER}@users.noreply.github.com"]
+    # 检查代理端口是否真的在监听，避免把能直连的环境搞坏
+    if GIT_PROXY:
+        import socket as _s
+        from urllib.parse import urlparse
+        try:
+            u = urlparse(GIT_PROXY)
+            sk = _s.socket()
+            sk.settimeout(1.5)
+            sk.connect((u.hostname, u.port or 7890))
+            sk.close()
+            base += ["-c", f"http.proxy={GIT_PROXY}",
+                     "-c", f"https.proxy={GIT_PROXY}"]
+        except Exception:
+            pass
+    return base
+
 
 def run(cmd, timeout=None, **kw):
     return subprocess.run(cmd, capture_output=True, text=True,
@@ -83,7 +109,7 @@ def verify_url(url, tries=3):
 def pick_sources():
     """跑 pick.py 生成 picked.m3u。"""
     print("=== 1. 选源（画质优先 + 余量判据）===", flush=True)
-    r = run([sys.executable, "pick.py", "", "48"], cwd=REPO,
+    r = run([sys.executable, "pick.py", "", "24"], cwd=REPO,
             timeout=1200)
     out = (r.stdout or "") + (r.stderr or "")
     for line in out.splitlines():
@@ -102,8 +128,7 @@ def publish(path):
     n = open(dst, encoding="utf-8").read().count("#EXTINF")
     print(f"  cctv.m3u: {n} 频道")
 
-    git = ["git", "-c", f"user.name={GH_USER}",
-           "-c", f"user.email={GH_USER}@users.noreply.github.com"]
+    git = _git()
     run(git + ["add", "-A"], cwd=REPO)
     run(git + ["commit", "-m",
                f"chore: 更新频道表 {time.strftime('%F %H:%M')} "

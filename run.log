@@ -166,3 +166,37 @@ wrote candidates.m3u: 18 channels, 145 urls
   耗时 57s，达标 18/18，wrote picked.m3u
 
 === 2. 写入仓库并推送 ===
+  cctv.m3u: 18 频道
+  push OK
+
+=== 4. 校验线上 ===
+  ghproxy 拉到 18 频道
+
+完成。电视端 URL：
+  https://ghproxy.net/https://raw.githubusercontent.com/NanamiSaaya/cctv-dedup/master/cctv.m3u
+===== 2026-11-28 00:29:47 end rc=0 =====
+===== 2026-11-28 06:17:01 start =====
+--- 刷新候选池 ---
+wrote candidates.m3u: 18 channels, 145 urls
+=== 0. 仓库当前已有 36 频道（将覆盖）===
+=== 1. 选源（画质优先 + 余量判据）===
+  ★ CCTV2    标   ? 实 576p ok=2  stall=0  err=0    26.4M worst=  0.6s [1/18 2s]
+  ★ CCTV5+   标   ? 实1080p ok=2  stall=0  err=0    65.3M worst=  0.7s [2/18 2s]
+  ★ CCTV1    标   ? 实 576p ok=2  stall=0  err=0    16.1M worst=  1.1s [3/18 3s]
+  ★ CCTV13   标   ? 实1080p ok=2  stall=0  err=0    73.2M worst=  0.6s [4/18 5s]
+  ★ CCTV17   标   ? 实1080p ok=2  stall=0  err=0    63.7M worst=  0.7s [5/18 7s]
+  ★ CCTV14   标   ? 实1080p ok=2  stall=0  err=0    34.5M worst=  3.3s [6/18 10s]
+  ★ CCTV10   标   ? 实1080p ok=2  stall=0  err=0    17.1M worst=  5.5s [7/18 15s]
+  ★ CCTV4    标   ? 实1080p ok=2  stall=0  err=0    29.1M worst=  1.9s [8/18 17s]
+  ★ CCTV16   标   ? 实1080p ok=2  stall=0  err=0    42.6M worst=  1.0s [9/18 22s]
+  ★ CCTV5    标   ? 实1080p ok=2  stall=0  err=0    30.1M worst=  1.7s [10/18 23s]
+  ★ CCTV11   标   ? 实1080p ok=2  stall=0  err=0    19.8M worst=  5.9s [11/18 26s]
+  ★ CCTV12   标   ? 实1080p ok=2  stall=0  err=0    21.4M worst=  4.7s [12/18 37s]
+  ★ CCTV6    标   ? 实1080p ok=2  stall=0  err=0    28.7M worst=  1.8s [13/18 44s]
+  ★ CCTV7    标   ? 实1080p ok=2  stall=0  err=0    34.1M worst=  1.5s [14/18 49s]
+  ★ CCTV8    标   ? 实1080p ok=2  stall=0  err=0    36.4M worst=  1.3s [15/18 53s]
+  ★ CCTV9    标   ? 实1080p ok=2  stall=0  err=0    34.2M worst=  1.4s [16/18 58s]
+  ★ CCTV15   标   ? 实1080p ok=2  stall=0  err=0    21.2M worst=  3.0s [17/18 65s]
+  耗时 65s，达标 17/18，wrote picked.m3u
+
+=== 2. 写入仓库并推送 ===

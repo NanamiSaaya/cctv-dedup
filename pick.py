@@ -284,7 +284,7 @@ def main():
     chans, meta, cur = OrderedDict(), {}, None
     # 用上游原始列表，才有 [1080]/[720] 标注
     path = None
-    for cand in ("../out/upstream.m3u8", "upstream.m3u8", "cctv.m3u"):
+    for cand in ("../out/upstream.m3u8", "candidates.m3u", "upstream.m3u8", "cctv.m3u"):
         import os
         if os.path.exists(cand):
             path = cand

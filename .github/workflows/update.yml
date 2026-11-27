@@ -1,9 +1,18 @@
-name: 更新去重 CCTV 列表
+name: 更新 CCTV 候选池
+
+# 注意：本 workflow **只生成候选池**（candidates.m3u），不再覆盖 cctv.m3u。
+#
+# 原因：cctv.m3u 是「本地实测选出来的成品」——需要在家庭宽带上逐条测
+# 分片级稳定性（每个分片能否在 TARGETDURATION 内下完）+ 解码核实真实分辨率，
+# 这两件事只能在本地做。Actions runner 在美国，测出来的结果对国内电视没有意义。
+#
+# 历史上这个 workflow 覆盖 cctv.m3u，导致成品被响应时间排序的旧逻辑冲掉，
+# 电视拉到的又变成卡顿源。改成候选池分离后不会再有这个问题。
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # 每 6 小时
-  workflow_dispatch:        # 允许手动触发
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,26 +23,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 注意：这里只生成候选池，不做质量排序。
-      # runner 在美国，测出来的带宽和国内电视的实际链路无关，
-      # 真正的排序在本地用 speedrank.py 做（见 README）。
       - name: 生成候选池
         run: python3 dedupe.py
 
-      - name: 校验结果
+      - name: 校验
         run: |
-          echo "频道数: $(grep -c '#EXTINF' cctv.m3u)"
-          echo "候选源: $(grep -c 'http' cctv.m3u)"
-          test "$(grep -c '#EXTINF' cctv.m3u)" -ge 15 || exit 1
+          echo "候选池频道数: $(grep -c '#EXTINF' candidates.m3u || echo 0)"
+          test "$(grep -c '#EXTINF' candidates.m3u || echo 0)" -ge 15 || exit 1
 
       - name: 提交
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add cctv.m3u
+          git add candidates.m3u
           if ! git diff --cached --quiet; then
-            git commit -m "chore: 更新 CCTV 候选池 $(date -u +%F\ %H:%M)"
+            git commit -m "chore: 更新候选池 $(date -u +%F\ %H:%M)"
             git push
           else
-            echo "无变化，跳过提交"
+            echo "无变化"
           fi

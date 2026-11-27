@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-抓取 best-fan/iptv-sources 的 CCTV 源，去重后输出 cctv.m3u。
+抓取 best-fan/iptv-sources 的 CCTV 源，去重后输出 candidates.m3u。
 
 ⚠️ 重要设计变更（2026-11-26）：
   旧版本按上游的 response-time 排序，这个字段只测量了 m3u8 播放列表本身
@@ -103,7 +103,7 @@ def dedupe(text):
 
 if __name__ == "__main__":
     body = dedupe(fetch())
-    with open("cctv.m3u", "w", encoding="utf-8") as f:
+    with open("candidates.m3u", "w", encoding="utf-8") as f:
         f.write(body)
     n = body.count("#EXTINF")
-    print(f"wrote cctv.m3u: {n} channels, {body.count('http')} candidate urls")
+    print(f"wrote candidates.m3u: {n} channels, {body.count('http')} urls")

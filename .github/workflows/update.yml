@@ -14,12 +14,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 生成去重列表
+      # 注意：这里只生成候选池，不做质量排序。
+      # runner 在美国，测出来的带宽和国内电视的实际链路无关，
+      # 真正的排序在本地用 speedrank.py 做（见 README）。
+      - name: 生成候选池
         run: python3 dedupe.py
 
       - name: 校验结果
         run: |
           echo "频道数: $(grep -c '#EXTINF' cctv.m3u)"
+          echo "候选源: $(grep -c 'http' cctv.m3u)"
           test "$(grep -c '#EXTINF' cctv.m3u)" -ge 15 || exit 1
 
       - name: 提交
@@ -28,7 +32,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add cctv.m3u
           if ! git diff --cached --quiet; then
-            git commit -m "chore: 更新去重 CCTV 列表 $(date -u +%F\ %H:%M)"
+            git commit -m "chore: 更新 CCTV 候选池 $(date -u +%F\ %H:%M)"
             git push
           else
             echo "无变化，跳过提交"

@@ -47,9 +47,10 @@ _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
 
 
-def run(cmd, **kw):
+def run(cmd, timeout=None, **kw):
     return subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", **kw)
+                          encoding="utf-8", errors="replace",
+                          timeout=timeout, **kw)
 
 
 def adb(*args, timeout=40):
@@ -103,31 +104,23 @@ def publish(path):
 
     git = ["git", "-c", f"user.name={GH_USER}",
            "-c", f"user.email={GH_USER}@users.noreply.github.com"]
-    run(git[:1] + git[1:] + ["add", "-A"], cwd=REPO)
-    subprocess.run(git + ["add", "-A"], cwd=REPO,
-                   capture_output=True, text=True)
-    subprocess.run(git + ["commit", "-m",
-                          f"chore: 更新频道表 {time.strftime('%F %H:%M')} "
-                          f"({n} 频道，画质优先)"],
-                   cwd=REPO, capture_output=True, text=True)
+    run(git + ["add", "-A"], cwd=REPO)
+    run(git + ["commit", "-m",
+               f"chore: 更新频道表 {time.strftime('%F %H:%M')} "
+               f"({n} 频道，画质优先)"], cwd=REPO)
     # 远程可能被 Actions 推送过，先 rebase 再推
-    for attempt in range(2):
-        p = subprocess.run(git + ["push", "origin", GH_BRANCH], cwd=REPO,
-                           capture_output=True, text=True)
+    for attempt in range(3):
+        p = run(git + ["push", "origin", GH_BRANCH], cwd=REPO)
         if p.returncode == 0:
             print("  push OK")
             return True
-        print("  push 失败，尝试 rebase …")
-        subprocess.run(git + ["pull", "--rebase", "--no-edit",
-                              "origin", GH_BRANCH],
-                       cwd=REPO, capture_output=True, text=True)
-        # 冲突时保留本地版本
-        subprocess.run(["git", "checkout", "--ours", "cctv.m3u"], cwd=REPO,
-                       capture_output=True, text=True)
-        subprocess.run(["git", "add", "cctv.m3u"], cwd=REPO,
-                       capture_output=True, text=True)
-        subprocess.run(["git", "-c", "core.editor=true", "rebase",
-                        "--continue"], cwd=REPO, capture_output=True, text=True)
+        print(f"  第{attempt+1}次 push 未成功，尝试 rebase …")
+        run(git + ["pull", "--rebase", "--no-edit", "origin", GH_BRANCH],
+            cwd=REPO)
+        # 冲突时保留本地验证过的版本
+        run(["git", "checkout", "--ours", "cctv.m3u"], cwd=REPO)
+        run(["git", "add", "cctv.m3u"], cwd=REPO)
+        run(["git", "-c", "core.editor=true", "rebase", "--continue"], cwd=REPO)
     return False
 
 

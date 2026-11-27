@@ -1,101 +1,96 @@
-# CCTV 去重直播列表（云端自动更新）
+# CCTV 直播列表（云端发布 + 电视自动拉取）
 
-给我家电视上的 my-t-v0 用的。上游是 [best-fan/iptv-sources](https://github.com/best-fan/iptv-sources)
-（每 6 小时自动检测更新的 CCTV 源）。
+给家里飞利浦 43PUF6061（Android 5.1、hi3751 双核 A7、1GB 内存）上的 **my-tv-0** 用。
 
-## ⚠️ 两条血泪教训（2026-11-26）
-
-**1. 按上游 `response-time` 排序 = 必然卡顿**
-
-那个字段只测量了 m3u8 播放列表本身（几百字节）的响应速度，和分片码流吞吐毫无关系。
-`123.160.235.204` 播放列表 34 ms 秒回，但分片被限速到 **0.5~1.3 Mbps**，
-而 1080p 需要 3~5 Mbps → 缓冲欠载 → 反复重连。
-
-**2. 带宽够 ≠ 台对**
-
-只看带宽修完卡顿后，仍有 5 个频道看不了：
-
-| 频道 | 实际播的是 |
-| --- | --- |
-| CCTV-2 | CCTV-1 综合 |
-| CCTV-5+ | CCTV-5 体育 |
-| CCTV-13 | TVU 测试卡（带宽 54 Mbps！） |
-| CCTV-14 | TVU 测试卡 |
-| CCTV-16 | CCTV-17 农业农村 |
-
-**节点编号也完全不可信**：同一套 `tsfile/live/xxxx` 在不同 IP 上指向不同频道
-（`60.223.94.153:9003/hls/16` = 山西卫视，`110.72.84.44:808/hls/16` = CCTV-5+，
-`221.7.175.154:8445/.../1016` = CCTV-5）。**只能看台标，不能靠编号推断。**
-
-所以流程改成：**云端只供候选池，本地测带宽 + 人工核台标**。
-
-**3. 断流卡顿：分片级停顿，跟带宽无关**
-
-实测过很多「平均 10 Mbps 但单个分片 113 秒」的源。平均带宽看着够，
-播放器却每几秒卡一次——因为**真实判据是「每个分片能否在 TARGETDURATION 内下完」**。
-
-停顿只发生在「分片刚生成、服务器还没写完」的时刻，是 IPTV 源服务器端行为。
-对同一分片反复请求，完整时稳定 14~35 Mbps / 1~3 秒完成。
-
-**所以 `speedrank.py`（只测 4 秒吞吐）不够用，必须用 `stability.py`。**
-
-关于代理：对国内源**没有收益**（实测直连 25.9 Mbps vs 代理 34.9 Mbps，属噪声范围）。
-代理只对海外源有意义。
-
-## 文件
-
-| 文件 | 作用 |
-| --- | --- |
-| `dedupe.py` | 抓取 + 去重，生成 `cctv.m3u` 候选池（每频道最多 8 条）。**Actions 跑这个** |
-| `cctv.m3u` | 候选池（Actions 自动提交，不要手改） |
-| `speedrank.py` | **本地跑**，按 4 秒吞吐排序（仅初筛，**不足以判断卡顿**） |
-| `stability.py` | **本地跑，最重要的工具**：按分片级停顿筛源，2 秒快速失败、命中即停 |
-| `fastseed.txt` | **人工核对过台标**的种子表，并进候选池防退回慢源 |
-| `finalcheck.py` | **交付前终审**：带宽 + 台标全量出图（必跑） |
-| `audiotrack.py` | 解析 PMT，看每个频道的音频编码（有声音/没声音的判据） |
-| `audiopick.py` | 按音频是否本机可解（AAC）挑源，MP2/AC3 的源必然静音 |
-| `logosheet.py` | 每条源台标区域放大拼图 |
-| `pickbychan.py` | 指定频道的全部候选台标拼图 |
-| `combo.py` | 带宽 + 台标同时出，一次定案 |
-| `hunt.py` | 跨多个源列表撒网收集某频道候选 |
-| `checkcontent.py` | 自动判据（辅助参考，**不能单独作准**） |
-| `cctv-fast.m3u` | 最终结果，推给电视用 |
-| `.github/workflows/update.yml` | 每 6 小时更新候选池 |
-
-## 电视端配置
-
-电视上**不用在线 config**（在线列表是云端按响应时间排的，拉下来还是错源/慢源）：
+## 架构
 
 ```
-/sdcard/cctv-fast.m3u                                ← refresh.sh 推送
-/data/data/com.lizongying.mytv0/files/channels.txt   ← 同上（uid 10041, chmod 600）
+家庭宽带（本机）
+  ├─ dedupe.py     抓 best-fan 上游 → candidates.m3u（候选池，不排序）
+  ├─ pick.py       逐条实测 → picked.m3u（画质优先 + 余量判据）
+  └─ publish.py    推 GitHub + 配置电视
+          ↓ push
+   GitHub  NanamiSaaya/cctv-dedup  →  cctv.m3u
+          ↓ ghproxy.net（电视直连 GitHub 会被重置）
+  电视 mytv0  开机/启动时按 config URL 自动拉取
 ```
 
-mytv0 prefs 里 `config_auto_load` 设为 `false`。
+电视端配置（`shared_prefs/我的電視·〇.xml`）：
 
-## 家里刷新流程
-
-```bash
-cd tv-fix && bash refresh.sh                 # 默认 192.168.124.5
-cd tv-fix && bash refresh.sh 192.168.124.9   # IP 变了就传参
+```xml
+<boolean name="config_auto_load" value="true" />
+<string name="config">https://ghproxy.net/https://raw.githubusercontent.com/NanamiSaaya/cctv-dedup/master/cctv.m3u</string>
 ```
 
-**改了源一定要核台标**（带宽高 ≠ 内容对）：
+开关在 app 里叫「应用启动后更新视频源」。
+
+## 一条命令搞定
 
 ```bash
 cd tv-fix/gh-dedup
-python finalcheck.py cctv-fast.m3u ../out/final
-# 打开 out/final/sheet.png 逐张看台号，对不上的从 fastseed.txt 删掉
+python publish.py            # 只选源 + 推 GitHub
+python publish.py --tv       # 另外配置电视并让它立刻拉取
 ```
 
-## 当前状态
+`publish.py` 会依次做：
+1. `pick.py` 选源（约 20~60 秒，48 并发）
+2. 写入 `cctv.m3u` 并 push（自动处理 Actions 造成的冲突，保留本地版本）
+3. 从 ghproxy 校验线上确实是新版
+4. （`--tv`）改电视 prefs + 重启 app + 确认 `导入频道 N`
 
-17 个频道全部台标正确、带宽 10~88 Mbps：CCTV-1/2/3/4/5/5+/6/7/8/9/10/11/12/13/14/15/17。
+## 三条血泪教训
 
-**CCTV-16 已移除** —— 所有已查节点都找不到真 CCTV-16，与其显示错误画面不如不放。
-日后若找到，加进 `fastseed.txt` 并跑 `finalcheck.py` 核对。
+### 1. 别按 `response-time` 排序
 
-## 关于「能看但没声音」
+上游 m3u8 的 `response-time` 只测了**播放列表本身（几百字节）** 的响应，
+和分片码流吞吐毫无关系。曾经因此把 18 个频道里 17 个都排到
+`123.160.235.204`——它播放列表 34 ms 秒回，但分片被限速到 0.5~1.3 Mbps，
+1080p 需要 3~5 Mbps，必然卡。
+
+### 2. 带宽够 ≠ 能播：要看分片级停顿
+
+实测反例：平均 10 Mbps 的源，单个分片却要 **113 秒**才下完。
+
+停顿只发生在**分片刚生成、服务器还没写完**时。对同一分片反复请求，
+完整时稳定 14~35 Mbps / 1~3 秒完成。这是源服务器端行为，与链路无关。
+
+**所以判据必须是「每个分片能否在 TARGETDURATION 内下完」，而且要留余量。**
+
+### 3. 带宽够 ≠ 台对：必须核台标
+
+上游 `tvg-name` 里的 `[1080]` 标注**不可信**，实测 CCTV-3 标 1080 实际只有 576p。
+更严重的是内容错配：曾经 CCTV-2 播的是 CCTV-1、CCTV-5+ 播的是 CCTV-5、
+CCTV-13/14 是 TVU 测试卡、CCTV-16 是 CCTV-17。
+
+节点编号也完全不可信——同一套 `tsfile/live/xxxx` 在不同 IP 上指向不同频道
+（`60.223:9003/hls/16` = 山西卫视，`110.72.84.44/hls/16` = CCTV-5+）。
+
+→ `pick.py` 会**解码首帧核实真实分辨率**。改源后务必人工看一眼台标。
+
+## pick.py 的判据
+
+| 档位 | 最低带宽 | 最慢分片允许耗时 |
+| --- | --- | --- |
+| 1080p | ≥ 8 Mbps | ≤ 分片时长 × 0.60 |
+| 720p | ≥ 5 Mbps | ≤ 分片时长 × 0.65 |
+| 576p | ≥ 3 Mbps | ≤ 分片时长 × 0.70 |
+
+速度靠快速失败保证：播放列表 3 秒超时、**2 秒内拿不到 400KB 直接判死**、
+任何 stall 立刻放弃、某频道达标后不再测它的低画质候选。
+
+## 关于代理
+
+**对国内源没有收益。** 实测同一分片：直连 25.9 Mbps vs 本地代理 34.9 Mbps，
+属噪声范围。代理不改变「终点服务器还没写完分片」这个事实。
+
+代理只对海外源有意义。实测海外节点（74.91.x / 198.204.x / 69.30.x）：
+播放列表可达 7/9，但分片大量 404，最好的一条也只有 1.5~2.3 Mbps、耗时 8~13 秒。
+所以现在全部用国内源。
+
+`ghproxy.net` 是另一回事——它不是加速代理，而是让**电视能访问 GitHub raw**。
+电视直连 `raw.githubusercontent.com` 会被 `Connection reset`，走 ghproxy 正常。
+
+## 关于没声音
 
 本机 `/system/lib` 只有这些音频解码器：
 
@@ -103,30 +98,31 @@ python finalcheck.py cctv-fast.m3u ../out/final
 libstagefright_soft_aacdec / mp3dec / amrdec / g711dec / gsmdec / opusdec / vorbisdec / rawdec
 ```
 
-**没有 MP2（MPEG-1/2 Audio），也没有 AC-3。** 而不少 CCTV 源的音频正是 MP2。
+**没有 MP2（MPEG-1/2 Audio），也没有 AC-3。** 而不少 CCTV 源的音频正是 MP2，
+所以画面正常但完全静音。
 
-用 `audiotrack.py` 可以查每个频道到底是什么音频：
+解决方案：app 里打开「软解」（prefs 的 `soft_decode=true`），不用换源。
 
-```bash
-python audiotrack.py cctv-fast.m3u
-# CCTV-3   [有] 有音频 AAC (ADTS)(pid=257)   ← 有声
-# CCTV-13  [有] 有音频 MPEG-1 Audio(pid=46)  ← 静音
-```
+## 文件
 
-**解决方案**：在 mytv0 里打开「软解」（prefs 的 `soft_decode=true`），
-软解路径能处理 MP2，就有声音了。这个开关不需要改源。
-
-如果想让源本身都是 AAC，用 `audiopick.py`：
-
-```bash
-python audiopick.py cctv.m3u cctv-aac.m3u
-```
+| 文件 | 作用 |
+| --- | --- |
+| `publish.py` | **主入口**：选源 → 推送 → 校验 → 配置电视 |
+| `pick.py` | 选源核心：画质优先 + 分片级稳定性 + 余量判据 |
+| `dedupe.py` | 抓上游生成候选池 `candidates.m3u`（Actions 跑这个） |
+| `cctv.m3u` | **线上成品**，电视拉这个（不要手改） |
+| `fastseed.txt` | 已人工核对过台标的高质量节点种子表 |
+| `.github/workflows/update.yml` | 每 6 小时更新候选池，**不覆盖 cctv.m3u** |
 
 ## 排查
 
-某频道看不了：
+某个频道卡或不对：
 
-1. `out/refresh.log` 找该频道测速段，看有没有 ≥3 Mbps 的源
-2. 有快源但仍不对 → `python pickbychan.py CCTVn` 看全部候选台标，挑对的
-3. 全都不对 → 该频道当前确实没有可用源，先移除
+```bash
+python pick.py CCTV7 48        # 单频道重测，看全部候选的实测指标
+```
 
+输出里每条都有 `标1080 实1080p ok=2 stall=0 err=0 24.2M worst=2.2s`，
+直接能看出是带宽不够、停顿、还是画质不够。
+
+改完后 `python publish.py --tv` 一键生效。

@@ -80,19 +80,12 @@ _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
 
-# 强制 IPv4：Debian 那台机器 DNS 优先返回 IPv6，而 IPv6 出口不通，
-# 会导致所有 HTTPS 源测出 000。测源必须直连且走 v4。
-try:
-    import socket as _socket
-    _orig_getaddrinfo = _socket.getaddrinfo
-
-    def _v4_only(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, _socket.AF_INET, type, proto, flags)
-
-    if os.environ.get("FORCE_V4", "1") == "1":
-        _socket.getaddrinfo = _v4_only
-except Exception:
-    pass
+# 强制 IPv4：Debian 那台机器 DNS 优先返回 IPv6，而 IPv6 出口不通。
+#
+# ⚠️ 早先版本直接替换 socket.getaddrinfo，在多线程下会出问题
+# （并发 8 时大量请求静默失败，测出来全是 mbps=0/err=1）。
+# 改用 HTTPConnection 层控制，不动全局 socket。
+FORCE_V4 = os.environ.get("FORCE_V4", "0") == "1"
 
 # 测源绝不能走代理：代理会绕一圈，"分片停顿"就测不准了
 for _k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
@@ -102,7 +95,22 @@ os.environ["no_proxy"] = "*"
 os.environ["NO_PROXY"] = "*"
 
 WANT = [c.strip() for c in (sys.argv[1] if len(sys.argv) > 1 else "").split(",") if c.strip()]
-WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 24
+WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 8
+
+# ⚠️ 并发上限（实测结论，别随意调高）
+#
+# 用同一个源做加压测试：
+#   并发  1 → 20.3 Mbps
+#   并发  4 → 18.7~20.8 Mbps   （几乎无损）
+#   并发  8 → 5.6~7.1 Mbps     （掉 3 倍）
+#   并发 16 → 2.2~4.1 Mbps     （掉 6 倍）
+#
+# IPTV 源站按连接数分摊带宽，并发一高每个连接测到的都是假数据 ——
+# 会把 20 Mbps 的好源测成 3 Mbps 然后误杀。
+#
+# 所以并发必须压在 4~8。候选源多时靠「多轮扫描」补速度，
+# 不要靠拉高并发。
+WORKERS_CAP = 8
 
 # ---- 画质档位 → 要求 ----
 # (像素档, 最低 Mbps, 余量系数: 最慢分片 <= 分片时长 * 余量)
@@ -225,7 +233,7 @@ def _probe_once(url, tier):
             "res": None, "res_px": 0}
 
     try:
-        body, _ = fetch_all(url, timeout=3)
+        body, _ = fetch_all(url, timeout=8)
     except Exception:
         return dead
     text = body.decode("utf-8", "ignore")
@@ -260,7 +268,7 @@ def _probe_once(url, tier):
     sample = None
     while time.time() < t_end:
         try:
-            body, _ = fetch_all(url, timeout=3)
+            body, _ = fetch_all(url, timeout=8)
         except Exception:
             errs += 1
             time.sleep(0.3)
@@ -363,7 +371,7 @@ def main():
     # 每个频道内按画质降序排，先测高画质
     for k in chans:
         chans[k]["urls"].sort(key=lambda x: -x[0])
-        chans[k]["urls"] = chans[k]["urls"][:14]   # 每频道最多测 14 条
+        chans[k]["urls"] = chans[k]["urls"][:10]   # 每频道最多测 10 条（并发受限，少测点但更准）
 
     solved = {}        # ch -> (url, tier, st)
     best_fb = {}       # ch -> (url, tier, st)  没达标的兜底
@@ -417,9 +425,10 @@ def main():
                 order.append((t, tier, u))
     order = list(dict.fromkeys(order))
 
-    print(f"{len(targets)} 频道 / {len(order)} 候选，{WORKERS} 并发，"
+    print(f"{len(targets)} 频道 / {len(order)} 候选，" 
+          f"{min(WORKERS, WORKERS_CAP)} 并发（源站限连接数，再高就测不准），"
           f"画质优先、慢源 2 秒即弃\n", flush=True)
-    with cf.ThreadPoolExecutor(max_workers=WORKERS) as ex:
+    with cf.ThreadPoolExecutor(max_workers=min(WORKERS, WORKERS_CAP)) as ex:
         futs = [ex.submit(work, ch, ti, u) for ch, ti, u in order]
         for f in cf.as_completed(futs):
             if stop.is_set():

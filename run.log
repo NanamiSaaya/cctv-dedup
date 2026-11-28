@@ -200,3 +200,25 @@ wrote candidates.m3u: 18 channels, 145 urls
   耗时 65s，达标 17/18，wrote picked.m3u
 
 === 2. 写入仓库并推送 ===
+===== 2026-11-28 12:17:01 start =====
+--- 刷新候选池 ---
+wrote candidates.m3u: 18 channels, 145 urls
+=== 0. 仓库当前已有 36 频道（将覆盖）===
+=== 1. 选源（画质优先 + 余量判据）===
+  ★ CCTV1    标   ? 实 576p ok=2  stall=0  err=0    29.0M worst=  0.5s [1/18 2s]
+  ★ CCTV5+   标   ? 实1080p ok=2  stall=0  err=0    49.0M worst=  0.9s [2/18 3s]
+  ★ CCTV2    标   ? 实 576p ok=2  stall=0  err=0    17.4M worst=  1.0s [3/18 4s]
+  ★ CCTV10   标   ? 实1080p ok=2  stall=0  err=0    84.8M worst=  1.2s [4/18 5s]
+  ★ CCTV3    标   ? 实1080p ok=2  stall=0  err=0    22.1M worst=  2.3s [5/18 7s]
+  ★ CCTV13   标   ? 实1080p ok=2  stall=0  err=0    40.1M worst=  1.4s [6/18 7s]
+  ★ CCTV17   标   ? 实1080p ok=2  stall=0  err=0    30.7M worst=  1.9s [7/18 11s]
+  ★ CCTV4    标   ? 实1080p ok=2  stall=0  err=0    18.1M worst=  3.4s [8/18 14s]
+  ★ CCTV5    标   ? 实1080p ok=2  stall=0  err=0    24.5M worst=  2.0s [9/18 21s]
+  ★ CCTV6    标   ? 实1080p ok=2  stall=0  err=0    29.0M worst=  1.7s [10/18 26s]
+  ★ CCTV7    标   ? 实1080p ok=2  stall=0  err=0    31.6M worst=  1.5s [11/18 30s]
+  ★ CCTV9    标   ? 实1080p ok=2  stall=0  err=0    29.6M worst=  1.7s [12/18 61s]
+  ★ CCTV15   标   ? 实1080p ok=2  stall=0  err=0    30.3M worst=  1.8s [13/18 66s]
+  ★ CCTV12   标   ? 实1080p ok=2  stall=0  err=0    13.6M worst=  7.1s [14/18 79s]
+  耗时 79s，达标 14/18，wrote picked.m3u
+
+=== 2. 写入仓库并推送 ===
